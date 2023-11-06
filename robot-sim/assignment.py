@@ -45,10 +45,11 @@ def find_marker(marker_code = None):
     for marker in R.see():
         if marker_code is not None:
             # we are looking for specific marker
-            if marker.info.offset is marker_code:
+            if marker.info.offset in markers_captured[:-1]:
                 # this is the marker we are looking for, get distance
                 dist = marker.dist
                 rot_y = marker.rot_y
+                mark = marker.info.offset
         else:
             # we are looking for the closest box which was not found yet
             if marker.info.offset in markers_captured:
@@ -59,11 +60,12 @@ def find_marker(marker_code = None):
                 if marker.dist < dist:
                     dist = marker.dist
                     rot_y = marker.rot_y  
+                    mark = marker.info.offset
     if dist == 100:
         # In this case no box is seen or it doesnt see the box we are looking or
         return -1, -1, -1
     else:
-        return dist, rot_y, marker.info.offset
+        return dist, rot_y, mark
     
         
 
@@ -90,18 +92,18 @@ while 1:
         if rot_y > a_th:
             # Rotate right
             print("Right a bit...")
-            turn_cws(2, 0.1)
+            turn_cws(2, 0.5)
         elif rot_y < -a_th:  
             # Rotate left 
             print("Left a bit...")
-            turn_cws(-2, 0.1)
+            turn_cws(-2, 0.5)
         else:
             # Robot is oriented on the target, drive forward.
             print("Ah, that'll do.")
-            if dist > 3*d_th:
+            if dist > 2.5*d_th:
                 drive(3*35, 0.1)
             else:
-                drive(35, 0.1)
+                drive(10, 0.5)
     else:
         # Robot is within threshold
         if not current_marker:
@@ -110,24 +112,27 @@ while 1:
                 # Robot grabbed the box
                 print("Gotcha!")
                 # set our main goal to the first marker
-                current_marker = markers_captured[0]
                 for marker in R.see():
                     if marker.dist <= d_th:
                         markers_captured.append(mark)
+                print(f"This is the list {markers_captured} and this is the list without the last element {markers_captured[:-1]}")
+                current_marker = markers_captured[0]
                 d_th = 1.5*d_th;
                 time.sleep(1)
 
             else:
                 print("Grab failed")
         else:
+
             R.release()
             print("Box dumped")
             current_marker = None
-            d_th = d_th/1.5
+            d_th = d_th / 1.5
             print(markers_captured)
-            drive(-20, 5)
-            turn_cws(10,1)
-        
+            drive(-20, 3)
+            turn_cws(10,2)
+    
+
         
     
     print(print(f"Closest marker {mark} is {dist} away and {rot_y}"))
