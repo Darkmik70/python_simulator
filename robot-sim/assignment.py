@@ -5,14 +5,15 @@ from sr.robot import *
 
 R = Robot()
 
-a_th = 2.0
-""" float: Threshold for the control of the orientation"""
-d_th = 0.4
-""" float: Threshold for the control of the linear distance"""
+## CONSTANTS
+GRAB_THRESHOLD = 0.4
+RELEASE_THRESHOLD = GRAB_THRESHOLD * 1.5
+ANGLE_THRESHOLD = 2.0
+
 
 def drive(speed, seconds):
     """
-    Function for setting a linear velocity
+    Function for setting a linear velocity forwards
 
     Args: speed (int): the speed of the wheels
           seconds (int): the time interval
@@ -22,6 +23,15 @@ def drive(speed, seconds):
     time.sleep(seconds)
     R.motors[0].m0.power = 0
     R.motors[0].m1.power = 0
+
+def drive_back(speed, seconds):
+    """
+    Function for setting a linear velocity backwards
+
+    Args: speed (int): the speed of the wheels
+          seconds (int): the time interval
+    """
+    drive(-speed, seconds)
 
 def turn_cws(speed, seconds):
     """
@@ -35,108 +45,134 @@ def turn_cws(speed, seconds):
     time.sleep(seconds)
     R.motors[0].m0.power = 0
     R.motors[0].m1.power = 0
+    
+def turn_cnt_cws(speed, seconds):
+    """
+    Function for setting angular velocity in counter clockwise direction
+    
+    Args: speed (int): speed of the wheels
+          seconds (int): the time interval
+    """
+    turn_cws(-speed, seconds)
 
-markers_captured = []
-""" Lists of markers captured by robot"""
+def find_marker(group_mode = False):
+    """
+    Searches for markers and identifies the target based on the robot's mode.
+    
+    Args:
+        group_mode (bool): If True, the robot is in group mode and looks for 
+                           group markers. If False, it searches for the closest 
+                           uncollected marker.
 
-def find_marker(marker_code = None):
+    Returns:
+        tuple: A tuple containing the distance to the box (dist),
+               the marker's rotation relative to the robot's orientation (rot_y),
+               and the marker's identifier (mark). 
+               If no relevant marker is found, returns (-1, -1, -1).
+
+    Note:
+        The function uses a global list `box_captured` which contains indexes
+        of captured boxes. 
+
+    """
     dist = 100
     
     for marker in R.see():
-        if marker_code is not None:
-            # we are looking for specific marker
-            if marker.info.offset in markers_captured[:-1]:
-                # this is the marker we are looking for, get distance
+        if group_mode:
+            # we are looking for our group
+            if marker.info.offset in box_captured[:-1]:
+                # this is one of the markers we are looking for
                 dist = marker.dist
                 rot_y = marker.rot_y
                 mark = marker.info.offset
         else:
-            # we are looking for the closest box which was not found yet
-            if marker.info.offset in markers_captured:
-                print(f"This fella no {marker.info.offset} was already touched")
-                dist = 100
-            else:
-                print(f"looking for a new box these are already found {markers_captured}")
+            # we are looking for the closest box which was not collected yet
+            if marker.info.offset not in box_captured:
                 if marker.dist < dist:
                     dist = marker.dist
                     rot_y = marker.rot_y  
                     mark = marker.info.offset
+            else:
+                print(f"This fella no {marker.info.offset} was already collected")
+                dist = 100 # Make sure we are not following this one 
+
     if dist == 100:
-        # In this case no box is seen or it doesnt see the box we are looking or
+        # Robot does not see a box that we are interested in the range
         return -1, -1, -1
     else:
         return dist, rot_y, mark
     
-        
-
-        
-
-
-current_marker = None
-while 1:
     
-    dist, rot_y, mark = find_marker(current_marker)
+angle_threshold = ANGLE_THRESHOLD
+""" float: Threshold for the control of the orientation"""
+dist_threshold = GRAB_THRESHOLD
+""" float: Threshold for the control of the linear distance"""
+        
+box_captured = []
+""" Lists of markers captured by robot"""
+
+group_mode = False
+
+while 1:    
+    dist, rot_y, box_id = find_marker(group_mode)
     
-    if not markers_captured:
-        # lets choose the first box as the place we throw them all
-        print("Powiedz mi ze nie jestes tutaj")
-        markers_captured.append(mark)
+    if not box_captured:
+        # the first, nearest box is set as the point where we group alll
+        box_captured.append(box_id)
     
     
     if dist == -1:
-        # It either sees no boxes or no boxes
+        # doesnt see boxes that it is looking for
         print("I dont see anything interesting")
-        turn_cws(-20, 0.5)
-    elif dist > d_th :
+        turn_cnt_cws(35, 0.2)
+    elif dist > dist_threshold :
         # Robot sees marker
-        if rot_y > a_th:
+        if rot_y > angle_threshold:
             # Rotate right
-            print("Right a bit...")
-            turn_cws(2, 0.5)
-        elif rot_y < -a_th:  
+            print("Turning right a bit...")
+            turn_cws(2, 0.2)
+        elif rot_y < -angle_threshold:  
             # Rotate left 
-            print("Left a bit...")
-            turn_cws(-2, 0.5)
+            print("Turning left a bit...")
+            turn_cnt_cws(2, 0.2)
         else:
             # Robot is oriented on the target, drive forward.
-            print("Ah, that'll do.")
-            if dist > 2.5*d_th:
-                drive(3*35, 0.1)
+            print(f"Driving towards box no {box_id}")
+            # adapt velocity to the distance
+            if dist >= 2*dist_threshold:
+                # Robot is far from the target, go fast
+                speed = 10 * dist * 25
+                drive(speed, 0.2)
             else:
-                drive(10, 0.5)
+                # slow down for precise driving, we need to ensure that grab will be succesful
+                drive(25, 0.1)
     else:
-        # Robot is within threshold
-        if not current_marker:
-            # if current marker is empty, we are looking for  
+        # Robot is within dist_threshold
+        if not group_mode:
+            # Grab the closest object
             if R.grab(): 
                 # Robot grabbed the box
                 print("Gotcha!")
-                # set our main goal to the first marker
+                # Add this box to the captured
                 for marker in R.see():
-                    if marker.dist <= d_th:
-                        markers_captured.append(mark)
-                print(f"This is the list {markers_captured} and this is the list without the last element {markers_captured[:-1]}")
-                current_marker = markers_captured[0]
-                d_th = 1.5*d_th;
-                time.sleep(1)
-
+                    if marker.dist <= dist_threshold:
+                        box_captured.append(box_id)
+                # Switch mode to find the group
+                group_mode = True
+                dist_threshold = RELEASE_THRESHOLD  # We need more space for dumping boxes
             else:
+                # Go back to make another attempt
                 print("Grab failed")
+                drive_back(20, 3)
         else:
-
+            # Drop the box
             R.release()
-            print("Box dumped")
-            current_marker = None
-            d_th = d_th / 1.5
-            print(markers_captured)
-            drive(-20, 3)
-            turn_cws(10,2)
-    
-
-        
-    
-    print(print(f"Closest marker {mark} is {dist} away and {rot_y}"))
-    print(R.see())
+            group_mode = False
+            dist_threshold = GRAB_THRESHOLD # set Threshold to be able to grab objects
+            print(f"Box {box_captured[-1]} dumped") # The last element is the Robot should be holding
+            print(f" Captured boxes: {box_captured}")
+            # go back a little 
+            drive_back(20, 3)
 
     
     
